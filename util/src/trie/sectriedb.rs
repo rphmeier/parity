@@ -36,7 +36,7 @@ impl<'db> SecTrieDB<'db> {
 	}
 
 	/// Get a reference to the underlying raw `TrieDB` struct.
-	pub fn raw(&self) -> &TrieDB {
+	pub fn raw(&self) -> &TrieDB<'db> {
 		&self.raw
 	}
 
