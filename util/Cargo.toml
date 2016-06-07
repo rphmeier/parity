@@ -19,7 +19,7 @@ time = "0.1.34"
 tiny-keccak = "1.0"
 rocksdb = { git = "https://github.com/ethcore/rust-rocksdb" }
 lazy_static = "0.1"
-eth-secp256k1 = { git = "https://github.com/ethcore/rust-secp256k1" }
+eth-secp256k1 = { git = "https://github.com/rphmeier/rust-secp256k1" }
 rust-crypto = "0.2.34"
 elastic-array = "0.4"
 heapsize = "0.3"
