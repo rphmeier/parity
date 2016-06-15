@@ -506,7 +506,7 @@ impl BlockChainClient for TestBlockChainClient {
 		unimplemented!()
 	}
 
-	fn snapshot_restore(&self, path: &Path) {
+	fn snapshot_restore(&self, _path: &Path) {
 		unimplemented!()
 	}
 }

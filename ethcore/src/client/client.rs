@@ -797,8 +797,10 @@ impl<V> BlockChainClient for Client<V> where V: Verifier {
 	fn snapshot_restore(&self, path: &Path) {
 		use snapshot::{ManifestData, StateRebuilder};
 
+		trace!(target: "snapshot", "loading snapshot from {:?}", path);
+
 		let mut buf = Vec::new();
-		let mut manifest = File::open(path.with_file_name("MANIFEST")).expect("No snapshot manifest found.");
+		let mut manifest = File::open(path.join("MANIFEST")).expect("No snapshot manifest found.");
 		let mut len = manifest.read_to_end(&mut buf).expect("failed to read manifest");
 
 		let mut state_db = self.state_db.lock().unwrap().boxed_clone();
@@ -807,7 +809,9 @@ impl<V> BlockChainClient for Client<V> where V: Verifier {
 		let manifest_data = ManifestData::from_rlp(&buf[..len]).expect("error parsing manifest data");
 		for state_hash in manifest_data.state_hashes {
 			let hash = state_hash.hex();
-			let mut chunk_file = File::open(path.with_file_name(&hash)).expect("Couldn't find state chunk file");
+			trace!(target: "snapshot", "feeding state chunk {}", hash);
+
+			let mut chunk_file = File::open(path.join(&hash)).expect("Couldn't find state chunk file");
 			len = chunk_file.read_to_end(&mut buf).expect("failed to read chunk file");
 
 			rebuilder.feed(&buf[..len]).expect("error in rebuilding state chunk");
