@@ -28,6 +28,7 @@ Usage:
   parity import [ <file> ] [options]
   parity export [ <file> ] [options]
   parity signer new-token [options]
+  parity snapshot (create | restore)
   parity [options]
 
 Protocol Options:
@@ -211,6 +212,9 @@ pub struct Args {
 	pub cmd_import: bool,
 	pub cmd_signer: bool,
 	pub cmd_new_token: bool,
+  pub cmd_snapshot: bool,
+  pub cmd_create: bool,
+  pub cmd_restore: bool,
 	pub arg_pid_file: String,
 	pub arg_file: Option<String>,
 	pub arg_path: Vec<String>,

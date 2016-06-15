@@ -142,6 +142,11 @@ fn execute(conf: Configuration) {
 		return;
 	}
 
+	if conf.args.cmd_snapshot {
+		execute_snapshot(conf, spec, client_config);
+		return;
+	}
+
 	execute_client(conf, spec, client_config);
 }
 
@@ -263,6 +268,43 @@ fn execute_client(conf: Configuration, spec: Spec, client_config: ClientConfig) 
 
 	// Handle exit
 	wait_for_exit(panic_handler, rpc_server, dapps_server, signer_server);
+}
+
+fn execute_snapshot(conf: Configuration, spec: Spec, client_config: ClientConfig) {
+	// Setup panic handler
+	let panic_handler = PanicHandler::new_in_arc();
+
+	// Setup logging
+	let logger = setup_log::setup_log(&conf.args.flag_logging);
+	// Raise fdlimit
+	unsafe { ::fdlimit::raise_fd_limit(); }
+
+	let net_settings = conf.net_settings(&spec);
+	let sync_config = conf.sync_config(&spec);
+
+	// Secret Store
+	let account_service = Arc::new(conf.account_service());
+
+	// Miner
+	let miner = Miner::with_accounts(conf.args.flag_force_sealing, conf.spec(), account_service.clone());
+	miner.set_author(conf.author());
+	miner.set_gas_floor_target(conf.gas_floor_target());
+	miner.set_extra_data(conf.extra_data());
+	miner.set_minimal_gas_price(conf.gas_price());
+	miner.set_transactions_limit(conf.args.flag_tx_limit);
+
+	// Build client
+	let mut path = ::std::path::Path::new(&conf.path()).to_owned();
+	let service = ClientService::start(
+		client_config, spec, net_settings, &path, miner.clone()
+	).unwrap_or_else(|e| die_with_error("Client", e));
+;
+	if conf.args.cmd_restore {
+		path.push("snapshot");
+		service.client().snapshot_restore(&path);
+	} else {
+		service.client().take_snapshot(&path);
+	}
 }
 
 fn flush_stdout() {

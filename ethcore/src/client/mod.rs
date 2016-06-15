@@ -198,6 +198,9 @@ pub trait BlockChainClient : Sync + Send {
 	/// Generate a PV64 snapshot for the current best block, saving it within the
 	/// root directory, whose path is given.
 	fn take_snapshot(&self, root_dir: &Path);
+
+	/// restore from the snapshot in the directory given.
+	fn snapshot_restore(&self, path: &Path);
 }
 
 /// Extended client interface used for mining
