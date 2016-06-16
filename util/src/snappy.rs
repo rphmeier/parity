@@ -78,7 +78,7 @@ pub fn decompressed_len(compressed: &[u8]) -> Result<usize, InvalidInput> {
 	if status == SNAPPY_INVALID_INPUT {
 		Err(InvalidInput)
 	} else {
-		Ok(len)
+		Ok(size)
 	}
 }
 
