@@ -808,6 +808,8 @@ impl<V> BlockChainClient for Client<V> where V: Verifier {
 
 		let manifest_data = ManifestData::from_rlp(&buf[..len]).expect("error parsing manifest data");
 		for state_hash in manifest_data.state_hashes {
+			buf.clear();
+
 			let hash = state_hash.hex();
 			let mut chunk_file = File::open(path.join(&hash)).expect("Couldn't find state chunk file");
 			len = chunk_file.read_to_end(&mut buf).expect("failed to read chunk file");
