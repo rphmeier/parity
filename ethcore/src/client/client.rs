@@ -804,7 +804,7 @@ impl<V> BlockChainClient for Client<V> where V: Verifier {
 		let mut len = manifest.read_to_end(&mut buf).expect("failed to read manifest");
 
 		let mut state_db = self.state_db.lock().unwrap().boxed_clone();
-		let mut rebuilder = StateRebuilder::new(state_db.as_hashdb_mut());
+		let mut rebuilder = StateRebuilder::new(state_db);
 
 		let manifest_data = ManifestData::from_rlp(&buf[..len]).expect("error parsing manifest data");
 		for state_hash in manifest_data.state_hashes {
