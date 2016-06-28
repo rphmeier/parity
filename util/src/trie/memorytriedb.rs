@@ -847,9 +847,9 @@ impl<'a> MemoryTrieDB<'a> {
 	}
 }
 
-impl<'a> Trie for MemoryTrieDB<'a> {
-	// TODO [rob] do something about the root not being consistent with trie state until commit.
-	fn root(&self) -> &H256 {
+impl<'a> TrieMut for MemoryTrieDB<'a> {
+	fn root(&mut self) -> &H256 {
+		self.commit();
 		&self.root
 	}
 
@@ -868,9 +868,7 @@ impl<'a> Trie for MemoryTrieDB<'a> {
 	fn contains(&self, key: &[u8]) -> bool {
 		self.get(key).is_some()
 	}
-}
 
-impl<'a> TrieMut for MemoryTrieDB<'a> {
 	fn insert(&mut self, key: &[u8], value: &[u8]) {
 		let root_handle = self.root_handle();
 		let (new_handle, changed) = self.insert_at(root_handle.into(), NibbleSlice::new(key), value.to_owned());
@@ -953,7 +951,6 @@ mod tests {
 			let mut root = H256::new();
 			let mut memtrie = populate_trie(&mut memdb, &mut root, &x);
 
-			memtrie.commit();
 			if *memtrie.root() != real {
 				println!("TRIE MISMATCH");
 				println!("");
@@ -964,7 +961,6 @@ mod tests {
 			}
 			assert_eq!(*memtrie.root(), real);
 			unpopulate_trie(&mut memtrie, &x);
-			memtrie.commit();
 			if *memtrie.root() != SHA3_NULL_RLP {
 				println!("- TRIE MISMATCH");
 				println!("");
@@ -981,7 +977,7 @@ mod tests {
 	fn init() {
 		let mut memdb = MemoryDB::new();
 		let mut root = H256::new();
-		let t = MemoryTrieDB::new(&mut memdb, &mut root);
+		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		assert_eq!(*t.root(), SHA3_NULL_RLP);
 	}
 
@@ -991,7 +987,6 @@ mod tests {
 		let mut root = H256::new();
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]));
 	}
 
@@ -1004,7 +999,6 @@ mod tests {
 		let mut t1 = MemoryTrieDB::new(&mut memdb, &mut root);
 		t1.insert(&[0x01, 0x23], &big_value.to_vec());
 		t1.insert(&[0x01, 0x34], &big_value.to_vec());
-		t1.commit();
 		let mut memdb2 = MemoryDB::new();
 		let mut root2 = H256::new();
 		let mut t2 = MemoryTrieDB::new(&mut memdb2, &mut root2);
@@ -1012,7 +1006,6 @@ mod tests {
 		t2.insert(&[0x01, 0x23], &big_value.to_vec());
 		t2.insert(&[0x01, 0x34], &big_value.to_vec());
 		t2.remove(&[0x01]);
-		t2.commit();
 	}
 
 	#[test]
@@ -1022,7 +1015,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[0x01u8, 0x23], &[0x23u8, 0x45]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![ (vec![0x01u8, 0x23], vec![0x23u8, 0x45]) ]));
 	}
 
@@ -1033,7 +1025,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[0x11u8, 0x23], &[0x11u8, 0x23]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x11u8, 0x23], vec![0x11u8, 0x23])
@@ -1049,7 +1040,6 @@ mod tests {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]);
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x81u8, 0x23], vec![0x81u8, 0x23]),
@@ -1064,7 +1054,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[], &[0x0]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![], vec![0x0]),
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
@@ -1078,7 +1067,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[0x01u8, 0x34], &[0x01u8, 0x34]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
 			(vec![0x01u8, 0x34], vec![0x01u8, 0x34]),
@@ -1093,7 +1081,6 @@ mod tests {
 		t.insert(&[0x01, 0x23, 0x45], &[0x01]);
 		t.insert(&[0x01, 0xf3, 0x45], &[0x02]);
 		t.insert(&[0x01, 0xf3, 0xf5], &[0x03]);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01, 0x23, 0x45], vec![0x01]),
 			(vec![0x01, 0xf3, 0x45], vec![0x02]),
@@ -1111,7 +1098,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value0);
 		t.insert(&[0x11u8, 0x23], big_value1);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01u8, 0x23], big_value0.to_vec()),
 			(vec![0x11u8, 0x23], big_value1.to_vec())
@@ -1127,7 +1113,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], big_value);
 		t.insert(&[0x11u8, 0x23], big_value);
-		t.commit();
 		assert_eq!(*t.root(), trie_root(vec![
 			(vec![0x01u8, 0x23], big_value.to_vec()),
 			(vec![0x11u8, 0x23], big_value.to_vec())
@@ -1149,8 +1134,6 @@ mod tests {
 		let mut t = MemoryTrieDB::new(&mut memdb, &mut root);
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		assert_eq!(t.get(&[0x1, 0x23]).unwrap(), &[0x1u8, 0x23]);
-		t.commit();
-		assert_eq!(t.get(&[0x1, 0x23]).unwrap(), &[0x1u8, 0x23]);
 	}
 
 	#[test]
@@ -1161,11 +1144,6 @@ mod tests {
 		t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
 		t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]);
 		t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]);
-		assert_eq!(t.get(&[0x01, 0x23]).unwrap(), &[0x01u8, 0x23]);
-		assert_eq!(t.get(&[0xf1, 0x23]).unwrap(), &[0xf1u8, 0x23]);
-		assert_eq!(t.get(&[0x81, 0x23]).unwrap(), &[0x81u8, 0x23]);
-		assert_eq!(t.get(&[0x82, 0x23]), None);
-		t.commit();
 		assert_eq!(t.get(&[0x01, 0x23]).unwrap(), &[0x01u8, 0x23]);
 		assert_eq!(t.get(&[0xf1, 0x23]).unwrap(), &[0xf1u8, 0x23]);
 		assert_eq!(t.get(&[0x81, 0x23]).unwrap(), &[0x81u8, 0x23]);
@@ -1193,8 +1171,6 @@ mod tests {
 			let mut memdb2 = MemoryDB::new();
 			let mut root2 = H256::new();
 			let mut memtrie_sorted = populate_trie(&mut memdb2, &mut root2, &y);
-			memtrie.commit();
-			memtrie_sorted.commit();
 			if *memtrie.root() != real || *memtrie_sorted.root() != real {
 				println!("TRIE MISMATCH");
 				println!("");
@@ -1227,7 +1203,6 @@ mod tests {
 					trie::Operation::Remove(key) => t.remove(&key)
 				}
 			}
-			t.commit();
 			assert_eq!(*t.root(), H256::from_slice(&output));
 		});
 	}
@@ -1239,7 +1214,6 @@ mod tests {
 		{
 			let mut t = MemoryTrieDB::new(&mut db, &mut root);
 			t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
-			t.commit();
 		}
 
 		{
