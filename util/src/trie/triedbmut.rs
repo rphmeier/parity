@@ -16,10 +16,10 @@
 
 //! In-memory trie representation.
 
-use super::{Trie, TrieError, TrieMut};
+use super::{TrieError, TrieMut};
 use super::node::Node as RlpNode;
 
-use ::{Bytes, FixedHash, HashDB, H256, SHA3_NULL_RLP};
+use ::{Bytes, HashDB, H256, SHA3_NULL_RLP};
 use ::bytes::ToPretty;
 use ::nibbleslice::NibbleSlice;
 use ::rlp::{Rlp, RlpStream, View, Stream};

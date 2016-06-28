@@ -18,7 +18,7 @@ use hash::*;
 use sha3::*;
 use hashdb::HashDB;
 use super::triedbmut::TrieDBMut;
-use super::trietraits::{Trie, TrieMut};
+use super::trietraits::TrieMut;
 use super::TrieError;
 
 /// A mutable `Trie` implementation which hashes keys and uses a generic `HashDB` backing database.
@@ -75,6 +75,7 @@ impl<'db> TrieMut for SecTrieDBMut<'db> {
 fn sectrie_to_trie() {
 	use memorydb::*;
 	use super::triedb::*;
+	use super::Trie;
 
 	let mut memdb = MemoryDB::new();
 	let mut root = H256::new();
