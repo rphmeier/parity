@@ -16,7 +16,6 @@
 
 //! Blockchain database client.
 
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use util::*;
@@ -30,7 +29,8 @@ use engine::Engine;
 use views::HeaderView;
 use service::{NetSyncMessage, SyncMessage};
 use env_info::LastHashes;
-use verification::*;
+use verification;
+use verification::{PreverifiedBlock, Verifier};
 use block::*;
 use transaction::{LocalizedTransaction, SignedTransaction, Action};
 use blockchain::extras::TransactionAddress;
@@ -38,7 +38,7 @@ use filter::Filter;
 use log_entry::LocalizedLogEntry;
 use block_queue::{BlockQueue, BlockQueueInfo};
 use blockchain::{BlockChain, BlockProvider, TreeRoute, ImportRoute};
-use client::{BlockID, TransactionID, UncleID, TraceId, ClientConfig, BlockChainClient, MiningBlockChainClient, TraceFilter, CallAnalytics};
+use client::{BlockID, TransactionID, UncleID, TraceId, ClientConfig, DatabaseCompactionProfile, BlockChainClient, MiningBlockChainClient, TraceFilter, CallAnalytics};
 use client::Error as ClientError;
 use env_info::EnvInfo;
 use executive::{Executive, Executed, TransactOptions, contract_address};
@@ -83,7 +83,7 @@ impl ClientReport {
 
 /// Blockchain database client backed by a persistent database. Owns and manages a blockchain and a block queue.
 /// Call `import_block()` to import a block asynchronously; `flush_queue()` flushes the queue.
-pub struct Client<V = CanonVerifier> where V: Verifier {
+pub struct Client {
 	chain: Arc<BlockChain>,
 	tracedb: Arc<TraceDB<BlockChain>>,
 	engine: Arc<Box<Engine>>,
@@ -92,7 +92,7 @@ pub struct Client<V = CanonVerifier> where V: Verifier {
 	report: RwLock<ClientReport>,
 	import_lock: Mutex<()>,
 	panic_handler: Arc<PanicHandler>,
-	verifier: PhantomData<V>,
+	verifier: Box<Verifier>,
 	vm_factory: Arc<EvmFactory>,
 	miner: Arc<Miner>,
 	io_channel: IoChannel<NetSyncMessage>,
@@ -106,13 +106,6 @@ const HISTORY: u64 = 1200;
 // Instead, add/upgrade the version string of the individual JournalDB-derived database
 // of which you actually want force an upgrade.
 const CLIENT_DB_VER_STR: &'static str = "5.3";
-
-impl Client<CanonVerifier> {
-	/// Create a new client with given spec and DB path.
-	pub fn new(config: ClientConfig, spec: Spec, path: &Path, miner: Arc<Miner>, message_channel: IoChannel<NetSyncMessage> ) -> Result<Arc<Client>, ClientError> {
-		Client::<CanonVerifier>::new_with_verifier(config, spec, path, miner, message_channel)
-	}
-}
 
 /// Get the path for the databases given the root path and information on the databases.
 pub fn get_db_path(path: &Path, pruning: journaldb::Algorithm, genesis_hash: H256) -> PathBuf {
@@ -131,25 +124,35 @@ pub fn append_path(path: &Path, item: &str) -> String {
 	p.to_str().unwrap().to_owned()
 }
 
-impl<V> Client<V> where V: Verifier {
+impl Client {
 	///  Create a new client with given spec and DB path and custom verifier.
-	pub fn new_with_verifier(
+	pub fn new(
 		config: ClientConfig,
 		spec: Spec,
 		path: &Path,
 		miner: Arc<Miner>,
 		message_channel: IoChannel<NetSyncMessage>)
-		-> Result<Arc<Client<V>>, ClientError>
+		-> Result<Arc<Client>, ClientError>
 	{
 		let path = get_db_path(path, config.pruning, spec.genesis_header().hash());
 		let gb = spec.genesis_block();
 		let chain = Arc::new(BlockChain::new(config.blockchain, &gb, &path));
 		let tracedb = Arc::new(try!(TraceDB::new(config.tracing, &path, chain.clone())));
 
+		let mut state_db_config = match config.db_cache_size {
+			None => DatabaseConfig::default(),
+			Some(cache_size) => DatabaseConfig::with_cache(cache_size),
+		};
+
+		if config.db_compaction == DatabaseCompactionProfile::HDD {
+			state_db_config = state_db_config.compaction(CompactionProfile::hdd());
+		}
+
 		let mut state_db = journaldb::new(
 			&append_path(&path, "state"),
 			config.pruning,
-			config.db_cache_size);
+			state_db_config
+		);
 
 		if state_db.is_empty() && spec.ensure_db_good(state_db.as_hashdb_mut()) {
 			state_db.commit(0, &spec.genesis_header().hash(), None).expect("Error commiting genesis state to state DB");
@@ -170,7 +173,7 @@ impl<V> Client<V> where V: Verifier {
 			report: RwLock::new(Default::default()),
 			import_lock: Mutex::new(()),
 			panic_handler: panic_handler,
-			verifier: PhantomData,
+			verifier: verification::new(config.verifier_type),
 			vm_factory: Arc::new(EvmFactory::new(config.vm_type)),
 			miner: miner,
 			io_channel: message_channel,
@@ -212,7 +215,7 @@ impl<V> Client<V> where V: Verifier {
 		}
 
 		// Verify Block Family
-		let verify_family_result = V::verify_block_family(&header, &block.bytes, engine, self.chain.deref());
+		let verify_family_result = self.verifier.verify_block_family(&header, &block.bytes, engine, self.chain.deref());
 		if let Err(e) = verify_family_result {
 			warn!(target: "client", "Stage 3 block verification failed for #{} ({})\nError: {:?}", header.number(), header.hash(), e);
 			return Err(());
@@ -238,7 +241,7 @@ impl<V> Client<V> where V: Verifier {
 
 		// Final Verification
 		let locked_block = enact_result.unwrap();
-		if let Err(e) = V::verify_block_final(&header, locked_block.block().header()) {
+		if let Err(e) = self.verifier.verify_block_final(&header, locked_block.block().header()) {
 			warn!(target: "client", "Stage 4 block verification failed for #{} ({})\nError: {:?}", header.number(), header.hash(), e);
 			return Err(());
 		}
@@ -296,7 +299,7 @@ impl<V> Client<V> where V: Verifier {
 			let closed_block = self.check_and_close_block(&block);
 			if let Err(_) = closed_block {
 				invalid_blocks.insert(header.hash());
-				break;
+				continue;
 			}
 			imported_blocks.push(header.hash());
 
@@ -359,7 +362,7 @@ impl<V> Client<V> where V: Verifier {
 					invalid: invalid_blocks,
 					enacted: enacted,
 					retracted: retracted,
-				})).unwrap();
+				})).unwrap_or_else(|e| warn!("Error sending IO notification: {:?}", e));
 			}
 		}
 
@@ -473,7 +476,7 @@ impl<V> Client<V> where V: Verifier {
 	}
 }
 
-impl<V> BlockChainClient for Client<V> where V: Verifier {
+impl BlockChainClient for Client {
 	fn call(&self, t: &SignedTransaction, analytics: CallAnalytics) -> Result<Executed, ExecutionError> {
 		let header = self.block_header(BlockID::Latest).unwrap();
 		let view = HeaderView::new(&header);
@@ -791,13 +794,13 @@ impl<V> BlockChainClient for Client<V> where V: Verifier {
 		}
 	}
 
-	fn all_transactions(&self) -> Vec<SignedTransaction> {
-		self.miner.all_transactions()
+	fn pending_transactions(&self) -> Vec<SignedTransaction> {
+		self.miner.pending_transactions()
 	}
 }
 
-impl<V> MiningBlockChainClient for Client<V> where V: Verifier {
-	fn prepare_open_block(&self, author: Address, gas_floor_target: U256, extra_data: Bytes) -> OpenBlock {
+impl MiningBlockChainClient for Client {
+	fn prepare_open_block(&self, author: Address, gas_range_target: (U256, U256), extra_data: Bytes) -> OpenBlock {
 		let engine = self.engine.deref().deref();
 		let h = self.chain.best_block_hash();
 
@@ -810,7 +813,7 @@ impl<V> MiningBlockChainClient for Client<V> where V: Verifier {
 			self.build_last_hashes(h.clone()),
 			self.dao_rescue_block_gas_limit(h.clone()),
 			author,
-			gas_floor_target,
+			gas_range_target,
 			extra_data,
 		).expect("OpenBlock::new only fails if parent state root invalid; state root of best block's header is never invalid; qed");
 
